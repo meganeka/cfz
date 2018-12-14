@@ -1,0 +1,36 @@
+From 7a444a08a24847a952dbf2bfe7f6a8e69d964d35 Mon Sep 17 00:00:00 2001
+From: megane <meganeka@gmail.com>
+Date: Sat, 8 Dec 2018 10:00:52 +0200
+Subject: [PATCH 2/3] Remove duplicate entries for refresh, wrefresh
+
+These return error values, so the (def err ...) versions stay.
+---
+ ncurses.scm | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/ncurses.scm b/ncurses.scm
+index a00c7af..8bdbb8a 100644
+--- a/ncurses.scm
++++ b/ncurses.scm
+@@ -31,9 +31,7 @@
+   subwin
+   overwrite
+   overlay
+-  refresh
+   redrawwin
+-  wrefresh
+   scr_dump
+   scr_init
+   scr_restore
+@@ -491,8 +489,6 @@
+ (def win subwin win int int int int)
+ (def err overwrite win win)
+ (def err overlay win win)
+-(def void refresh)
+-(def void wrefresh win)
+ (def void redrawwin win)
+ (def err scr_dump c-string)
+ (def err scr_init c-string)
+-- 
+2.7.4
+

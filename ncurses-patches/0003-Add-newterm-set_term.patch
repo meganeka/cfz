@@ -1,0 +1,53 @@
+From 7c8cec3c6351957812e753d3eb913da834bf7036 Mon Sep 17 00:00:00 2001
+From: megane <meganeka@gmail.com>
+Date: Sat, 8 Dec 2018 12:17:41 +0200
+Subject: [PATCH 3/3] Add newterm, set_term
+
+---
+ ncurses.scm | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/ncurses.scm b/ncurses.scm
+index 8bdbb8a..0c92a51 100644
+--- a/ncurses.scm
++++ b/ncurses.scm
+@@ -11,6 +11,8 @@
+ 
+  (endwin
+   initscr
++  newterm
++  set_term
+   box
+   copywin
+   delwin
+@@ -369,6 +371,7 @@
+ (define-foreign-type chtype int to-chtype integer->char)
+ (define-foreign-type rchtype int to-chtype)
+ (define-foreign-type win (c-pointer "WINDOW"))
++(define-foreign-type scr (c-pointer "SCREEN"))
+ 
+ (define-syntax def
+   (er-macro-transformer
+@@ -412,11 +415,18 @@
+ 
+ (def err endwin)
+ (def ptr initscr)
+-; newterm
++(def scr set_term scr)
+ (def err box ptr chtype chtype)
+ (def err copywin ptr ptr int int int int int int bool)
+ (def err delwin ptr)
+ 
++(define (newterm type fd-in fd-out)
++  ((foreign-lambda* scr ((c-string type) (bool tp) (int fi) (int fo))
++                    "FILE *in =fdopen(fi,\"r\");"
++                    "FILE *out=fdopen(fo,\"w\");"
++                    "C_return(newterm(tp ? type : (char *) 0, in, out));")
++   (or type "") (string? type) fd-in fd-out))
++
+ (define-syntax getpos
+   (er-macro-transformer
+   (lambda (sexp r c)
+-- 
+2.7.4
+

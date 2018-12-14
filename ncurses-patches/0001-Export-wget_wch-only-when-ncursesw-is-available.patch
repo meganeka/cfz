@@ -1,0 +1,87 @@
+From a7d2f2af812854310c4bc8cc2e5e4dfa48916699 Mon Sep 17 00:00:00 2001
+From: megane <meganeka@gmail.com>
+Date: Sat, 8 Dec 2018 09:54:16 +0200
+Subject: [PATCH 1/3] Export wget_wch only when ncursesw is available
+
+* build: Compile with curses-wide feature, when wide support available
+
+* ncurses.scm: Move wget_wch and its export to a cond-expand block
+---
+ build       |  9 ++++++++-
+ ncurses.scm | 30 ++++++++++++++++++------------
+ 2 files changed, 26 insertions(+), 13 deletions(-)
+
+diff --git a/build b/build
+index 2494815..1d527f3 100755
+--- a/build
++++ b/build
+@@ -1,3 +1,10 @@
+ #!/bin/sh
+ 
+-$CHICKEN_CSC -C "`pkg-config --cflags ncursesw`" -L "`pkg-config --libs ncursesw`" $@
++if pkg-config --libs ncursesw >/dev/null 2>&1 ; then
++    V="ncursesw"
++    FEAT="-Dcurses-wide"
++else
++    V="ncurses"
++fi
++
++$CHICKEN_CSC $FEAT -C "`pkg-config --cflags $V`" -L "`pkg-config --libs $V`" $@
+diff --git a/ncurses.scm b/ncurses.scm
+index 440615a..a00c7af 100644
+--- a/ncurses.scm
++++ b/ncurses.scm
+@@ -113,7 +113,6 @@
+   unctrl
+   ungetch
+   wgetch
+-  wget_wch
+   getch
+   cbreak
+   raw
+@@ -576,17 +575,6 @@
+ (def void ungetch int)
+ (def chtype wgetch win)
+ 
+-(define (wget_wch win)
+-  (let-location ((wch integer))
+-    (let ((ret ((foreign-lambda* int ((win win) ((c-pointer "wint_t") wch))
+-                                 "C_return(wget_wch(win, wch));")
+-                win (location wch))))
+-      (select ret
+-        ((ERR) #f)
+-        ((KEY_CODE_YES) wch)
+-        ((OK) (integer->char wch))))
+-    ))
+-
+ (define (getch) (wgetch (stdscr)))
+ (def err cbreak)
+ (def err raw)
+@@ -671,6 +659,24 @@
+ ; baudrate
+ (def char erasechar)
+ (def char killchar)
++
++(cond-expand
++ (curses-wide
++  (import (chicken syntax))
++  (import (chicken module))
++  (export wget_wch)
++  (define (wget_wch win)
++    (let-location ((wch integer))
++                  (let ((ret ((foreign-lambda* int ((win win) ((c-pointer "wint_t") wch))
++                                               "C_return(wget_wch(win, wch));")
++                              win (location wch))))
++                    (select ret
++                      ((ERR) #f)
++                      ((KEY_CODE_YES) wch)
++                      ((OK) (integer->char wch))))
++                  )))
++ (else (begin)))
++
+ ; erasewchar, killwchar
+ ; filter
+ (defv win stdscr)
+-- 
+2.7.4
+
