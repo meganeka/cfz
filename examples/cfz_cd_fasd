@@ -1,5 +1,9 @@
 # -*- mode: sh -*-
 
+# Source this file in your .bashrc
+# Bind to a suitable key like \C-o
+# bind '"YOURKEYHERE":"\C-A\C-K cfz_cd\C-m"' # ;-v
+
 cfz_cd() {
     _cfz_ret=$(fasd -l -d -R -e 'printf %s' "$@" | cfz | head -n1)
     # echo "Returned $_cfz_ret"
@@ -11,5 +15,3 @@ cfz_cd() {
         printf "itisnotdir '%s'\n" "$_cfz_ret"
     fi
 }
-
-# bind '"ͱ":"\C-A\C-K cfz_cd\C-m"' # ;-v
