@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -e
+set -o pipefail
+
+out=$(mktemp --tmpdir)
+out2=$(mktemp --tmpdir)
+trap "rm $out $out2" EXIT
+
+cat > "$out"
+
+(cfz "$out" "$out2" < "/dev/tty" > "/dev/tty") || exit 1
+cat "$out2"

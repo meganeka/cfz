@@ -1,0 +1,42 @@
+# -*- mode: sh -*-
+bookmarks="$HOME/.cmd_bookmarks"
+
+function __cfz_bkm_run () {
+    cmd="$1"
+    (
+        echo "Running: \"$cmd\"" > /dev/stderr
+        bash -c "$cmd" > /dev/stderr
+    )
+}
+
+function __cfz_bkm_echo () {
+    if [[ "$1" =~ ^\ *#*\ *(.*)(#.*)?$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    fi
+}
+
+function cfz_cmd_bookmarks_run() {
+    cmd=$(cfz_wrapper < "$bookmarks")
+    if [ ! -z "$cmd" ]; then
+        __cfz_bkm_run "$cmd"
+    fi
+}
+
+function cfz_cmd_bookmarks_echo() {
+    cmd=$(cfz_wrapper < "$bookmarks")
+    if [ ! -z "$cmd" ]; then
+        __cfz_bkm_echo"$cmd"
+    fi
+}
+
+function cfz_cmd_bookmarks_run_or_echo() {
+    cmd=$(cfz_wrapper < "$bookmarks")
+    if [ ! -z "$cmd" ]; then
+        if [[ "$cmd" =~ ^# ]]; then
+            __cfz_bkm_echo "$cmd"
+        else
+            __cfz_bkm_run "$cmd"
+        fi
+    fi
+}
+# bind '"^[x":"\C-A\C-K cfz_cmd_bookmarks"' # M-x

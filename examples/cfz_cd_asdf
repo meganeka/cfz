@@ -1,0 +1,15 @@
+# -*- mode: sh -*-
+
+cfz_cd() {
+    _cfz_ret=$(fasd -l -d -R -e 'printf %s' "$@" | cfz | head -n1)
+    # echo "Returned $_cfz_ret"
+
+    [ -z "$_cfz_ret" ] && return
+    if [ -d "$_cfz_ret" ]; then
+        cd "$_cfz_ret"
+    else
+        printf "itisnotdir '%s'\n" "$_cfz_ret"
+    fi
+}
+
+# bind '"ͱ":"\C-A\C-K cfz_cd\C-m"' # ;-v
