@@ -16,3 +16,6 @@ build/curses-loop.o: src/curses-loop.scm
 
 clean:
 	rm -fr build bin
+
+install-deps:
+	chicken-install ncurses typed-records matchable
