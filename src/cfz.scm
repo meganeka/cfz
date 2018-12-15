@@ -106,6 +106,8 @@
    [(old-query #f) : (or false string)]
    [(cands '()) : (list-of string)]
    [(input '()) : (list-of string)]
+   [(redraw? #f) : boolean]
+
    [(retval #f) : (or boolean (list-of string))]
    [(done? #f) : boolean]
    [(mb-input (mb:make-mailbox)) : (struct mailbox)])
@@ -135,9 +137,8 @@
  (define (render state)
    (define cands-height (- (c:LINES) 2))
    ;; TODO: flicker less
-   (when (or (not (equal? (state-query state) (state-old-query state)))
-             (and (not (eq? (state-old-cand state) (state-cur-cand state)))
-                  (< (- cands-height 2) (state-cur-cand state))))
+   (when (state-redraw? state)
+     (state-redraw?-set! state #f)
      (c:clear)
      (state-cands-set! state (filter-input (state-input state) (state-query state)))
      (print-candidates (state-cands state) (state-cur-cand state) cands-height)
@@ -175,8 +176,10 @@
           state (modulo (+ count (state-cur-cand state)) (num-cands cands))))))
    (define (back? c) (or (eq? backspace c) (eq? c:KEY_BACKSPACE c)))
    (define (set-query new)
-     (state-old-query-set! state (state-query state))
-     (state-query-set! state new))
+     (unless (equal? new (state-query state))
+       (state-redraw?-set! state #t)
+       (state-old-query-set! state (state-query state))
+       (state-query-set! state new)))
    (define (set-return-val v)
      (state-done?-set! state #t)
      (state-retval-set! state v))
@@ -201,7 +204,9 @@
         0
         (max 0 (sub1 (string-length (state-query state))))))]
      [('key: c) (set-query (string-append (state-query state) (format "~a" c)))]
-     [('add-strings: strs) (state-input-set! state (append! (state-input state) strs))]
+     [('add-strings: strs)
+      (state-redraw?-set! state #t)
+      (state-input-set! state (append! (state-input state) strs))]
      [t (error 'update "unknown msg" t)])
    state)
 
@@ -209,7 +214,7 @@
    (let lp ([lines '()]
             [c 0])
      (let ([l (read-line port)])
-       (cond [(or (eof-object? l) (= 1000 c))
+       (cond [(or (eof-object? l) (= 5000 c))
               (mb:mailbox-send! mb-out (list add-strings: (reverse! lines)))
               (when (not (eof-object? l))
                 (lp '() 0))]
