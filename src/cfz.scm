@@ -67,16 +67,16 @@
 
  (: filter-input (strings string --> strings))
  (define (filter-input input query)
+   (define (make-pred q)
+     (let ([irxs (map (lambda (s) (irregex `(: ,s) 'i)) (string-split q " "))])
+       (lambda (line)
+         (let lp ([ixs irxs])
+           (or (null? ixs)
+               (and (irregex-search (car ixs) line)
+                    (lp (cdr ixs))))))))
    (if (string=? "" query)
        input
-       (let* ([strings (string-split query " ")])
-         (filter
-          (lambda [line]
-            (let recur ([strs strings])
-              (or (null? strs)
-                  (and (irregex-search (irregex `(: ,(car strs))) line)
-                       (recur (cdr strs))))))
-          input))))
+       (filter (make-pred query) input)))
 
  (: cand-to-line (fixnum --> fixnum))
  (define (cand-to-line idx)
