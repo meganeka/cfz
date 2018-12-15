@@ -136,26 +136,28 @@
 
  (define (render state)
    (define cands-height (- (c:LINES) 2))
+   (define refresh? #f)
    ;; TODO: flicker less
    (when (state-redraw? state)
-     (state-redraw?-set! state #f)
      (c:clear)
      (state-cands-set! state (filter-input (state-input state) (state-query state)))
      (print-candidates (state-cands state) (state-cur-cand state) cands-height)
-     (c:refresh))
+     (set! refresh? #t)
+
+     (with-attrs
+      c:A_BOLD
+      (c:mvprintw (sub1 (c:LINES)) 0
+                  "~a ~a > ~a"
+                  (length (state-cands state))
+                  (state-cur-cand state)
+                  (state-query state))))
 
    (unless (eq? (state-old-cand state) (state-cur-cand state))
      (redraw-selection (state-cands state) (state-old-cand state) (state-cur-cand state))
-     (c:refresh))
+     (set! refresh? #t))
 
-   (with-attrs
-    c:A_BOLD
-    (c:mvprintw (sub1 (c:LINES)) 0
-                "~a ~a > ~a"
-                (length (state-cands state))
-                (state-cur-cand state)
-                (state-query state)))
-   (c:refresh))
+   (when refresh?
+     (c:refresh)))
 
  (define (init-state)
    (make-state))
