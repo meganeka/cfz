@@ -161,7 +161,7 @@
    (make-state input: input))
 
  (define (update state msg)
-   (loop:log-msg "update" msg)
+   (loop:log-msg "update" (car msg))
    (define cand-up
      (lambda (cands #!optional (count 1))
        (unless (null? cands)
@@ -177,25 +177,25 @@
      (state-retval-set! state v))
    ;; (match '(foo: a #\a) [(or (foo: 'a #\a) (foo: 'b #\b))]) ;; TODO: matchable bug?
    (match msg
-     [(key: 'meta #\j) (cand-up (state-cands state) -1)]
-     [(key: 'meta #\k) (cand-up (state-cands state))]
-     [(key: 'meta #\u) (find-parent state (state-cands state))]
-     [(key: 'meta #\escape) (set-return-val #t)]
-     [(key: 'meta #\g) (set-return-val #t)]
-     [(key: 'meta #\e) (error 'eee)]
-     [(key: #\alarm) (set-return-val #t)]
-     [(key: #\newline) (set-return-val
+     [('key: 'meta #\j) (cand-up (state-cands state) -1)]
+     [('key: 'meta #\k) (cand-up (state-cands state))]
+     [('key: 'meta #\u) (find-parent state (state-cands state))]
+     [('key: 'meta #\escape) (set-return-val #t)]
+     [('key: 'meta #\g) (set-return-val #t)]
+     [('key: 'meta #\e) (error 'eee)]
+     [('key: #\alarm) (set-return-val #t)]
+     [('key: #\newline) (set-return-val
                         (let ([cands (filter-input (state-input state) (state-query state))])
                           (if (null? cands)
                               #f
                               (list (list-ref cands (state-cur-cand state))))))]
-     [(key: (? back?))
+     [('key: (? back?))
       (set-query
        (substring
         (state-query state)
         0
         (max 0 (sub1 (string-length (state-query state))))))]
-     [(key: c) (set-query (string-append (state-query state) (format "~a" c)))]
+     [('key: c) (set-query (string-append (state-query state) (format "~a" c)))]
      [t (error 'update "unknown msg" t)])
    state)
 
