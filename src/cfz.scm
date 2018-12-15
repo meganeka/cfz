@@ -38,6 +38,23 @@
  (define backspace #\x107)
  (define selection-style (+ c:A_REVERSE c:A_BOLD))
 
+ ;;; ** --- State -------------------------------------------------------------------
+
+ (defstruct state
+   [(cur-cand 0) : fixnum]
+   [(old-cand -1) : fixnum]
+   [(query "") : string]
+   [(old-query #f) : (or false string)]
+   [(cands '()) : (list-of string)]
+   [(input '()) : (list-of string)]
+   [(redraw? #f) : boolean]
+
+   [(retval #f) : (or boolean (list-of string))]
+   [(done? #f) : boolean]
+   [(mb-input (mb:make-mailbox)) : (struct mailbox)])
+
+ ;;; ** --- Render ------------------------------------------------------------------
+
  (define-syntax with-attrs
    (ir-macro-transformer
     (lambda (e inj cmp)
@@ -49,7 +66,7 @@
             (c:attroff ,attrs)))
        (cdr e)))))
 
- ;; [(cands : cands) (cur-cand : fixnum) (height : fixnum)]
+ (: print-candidates (strings fixnum fixnum -> *))
  (define (print-candidates cands cur-cand height)
    (let* ([start-idx (max 0 (+ 1 (- cur-cand height)))])
      (let recur ([line height]
@@ -66,25 +83,10 @@
                 (cdr cands)
                 (add1 idx))))))
 
- (: filter-input (strings string --> strings))
- (define (filter-input input query)
-   (define (make-pred q)
-     (let ([irxs (map (lambda (s) (irregex `(: ,s) 'i)) (string-split q " "))])
-       (lambda (line)
-         (let lp ([ixs irxs])
-           (or (null? ixs)
-               (and (irregex-search (car ixs) line)
-                    (lp (cdr ixs))))))))
-   (if (string=? "" query)
-       input
-       (filter (make-pred query) input)))
-
- (: cand-to-line (fixnum --> fixnum))
- (define (cand-to-line idx)
-   (- (c:LINES) 2 idx))
-
- ;; [(cands : cands) old-cand new-cand]
  (define (redraw-selection cands old-cand new-cand)
+   (: cand-to-line (fixnum --> fixnum))
+   (define (cand-to-line idx)
+     (- (c:LINES) 2 idx))
    (let* ([n-cands (length cands)])
      (when (< 0 n-cands)
        (when (and (<= 0 old-cand n-cands)
@@ -95,44 +97,6 @@
          (with-attrs
           selection-style
           (c:mvprintw (cand-to-line new-cand) 0 "~a" (list-ref cands new-cand)))))))
-
- (define (num-cands cands)
-   (length cands))
-
- (defstruct state
-   [(cur-cand 0) : fixnum]
-   [(old-cand -1) : fixnum]
-   [(query "") : string]
-   [(old-query #f) : (or false string)]
-   [(cands '()) : (list-of string)]
-   [(input '()) : (list-of string)]
-   [(redraw? #f) : boolean]
-
-   [(retval #f) : (or boolean (list-of string))]
-   [(done? #f) : boolean]
-   [(mb-input (mb:make-mailbox)) : (struct mailbox)])
-
- (define (find-parent state cands)
-   (state-old-cand-set! state (state-cur-cand state))
-   (let* ([cur (list-ref cands (state-cur-cand state))]
-          [cur-len (string-length cur)])
-     (let recur ([best-len 0]
-                 [best -1]
-                 [cs cands]
-                 [idx 0])
-       (cond
-        [(null? cs)
-         (state-cur-cand-set! state (if (= -1 best) (state-cur-cand state) best))]
-        [else
-         (let* ([c (car cs)]
-                [cl (string-length c)])
-           (cond
-            [(or (not (< cl cur-len))
-                 (not (< best-len cl))
-                 (not (string=? (substring cur 0 cl) c)))
-             (recur best-len best (cdr cs) (add1 idx))]
-            [else
-             (recur cl idx (cdr cs) (add1 idx))]))]))))
 
  (define (render state)
    (define cands-height (- (c:LINES) 2))
@@ -159,6 +123,46 @@
    (when refresh?
      (c:refresh)))
 
+ ;;; ** --- Logic -------------------------------------------------------------------
+
+ (: filter-input (strings string --> strings))
+ (define (filter-input input query)
+   (define (make-pred q)
+     (let ([irxs (map (lambda (s) (irregex `(: ,s) 'i)) (string-split q " "))])
+       (lambda (line)
+         (let lp ([ixs irxs])
+           (or (null? ixs)
+               (and (irregex-search (car ixs) line)
+                    (lp (cdr ixs))))))))
+   (if (string=? "" query)
+       input
+       (filter (make-pred query) input)))
+
+ (define (num-cands cands)
+   (length cands))
+
+ (define (find-parent state cands)
+   (state-old-cand-set! state (state-cur-cand state))
+   (let* ([cur (list-ref cands (state-cur-cand state))]
+          [cur-len (string-length cur)])
+     (let recur ([best-len 0]
+                 [best -1]
+                 [cs cands]
+                 [idx 0])
+       (cond
+        [(null? cs)
+         (state-cur-cand-set! state (if (= -1 best) (state-cur-cand state) best))]
+        [else
+         (let* ([c (car cs)]
+                [cl (string-length c)])
+           (cond
+            [(or (not (< cl cur-len))
+                 (not (< best-len cl))
+                 (not (string=? (substring cur 0 cl) c)))
+             (recur best-len best (cdr cs) (add1 idx))]
+            [else
+             (recur cl idx (cdr cs) (add1 idx))]))]))))
+
  (define (init-state)
    (make-state))
 
@@ -167,6 +171,8 @@
    (let ([mb-in (state-mb-input state)])
      (cond [(not (mb:mailbox-empty? mb-in)) (mb:mailbox-receive! mb-in)]
            [else #f])))
+
+ ;;; ** --- Update ------------------------------------------------------------------
 
  (define (update state msg)
    (loop:log-msg "update" (car msg))
@@ -195,10 +201,10 @@
      [('key: 'meta #\e) (error 'eee)]
      [('key: #\alarm) (set-return-val #t)]
      [('key: #\newline) (set-return-val
-                        (let ([cands (filter-input (state-input state) (state-query state))])
-                          (if (null? cands)
-                              #f
-                              (list (list-ref cands (state-cur-cand state))))))]
+                         (let ([cands (filter-input (state-input state) (state-query state))])
+                           (if (null? cands)
+                               #f
+                               (list (list-ref cands (state-cur-cand state))))))]
      [('key: (? back?))
       (set-query
        (substring
