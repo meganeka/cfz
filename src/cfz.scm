@@ -9,19 +9,21 @@
    (import (only (chicken format) format))
    (import (only (chicken process-context) command-line-arguments))
    (import (chicken type))
-   (import (only (chicken io) read-lines))
+   (import (only (chicken io) read-lines read-line))
    (import (only (chicken string) string-split))
-   (import (only (srfi 1) filter drop))
+   (import (only (srfi 1) filter drop append! reverse!))
+   (import (only (srfi 18) make-thread thread-start! thread-yield!))
    (import (only typed-records defstruct))
    (import (prefix curses-loop loop:))
    (import (only matchable match))
    (import (prefix ncurses c:))
    (import (chicken condition))
    (import (only (chicken irregex) irregex irregex-search))
+   (import (prefix mailbox mb:))
    )
   (else (import chicken)
         (use (only data-structures string-split))
-        (use (only extras read-lines))
+        (use (only extras read-lines read-line))
         (use (only matchable match))
         (use (only srfi-1 drop filter))
         (use (only typed-records defstruct))
@@ -64,7 +66,6 @@
                 (cdr cands)
                 (add1 idx))))))
 
-
  (: filter-input (strings string --> strings))
  (define (filter-input input query)
    (define (make-pred q)
@@ -106,7 +107,8 @@
    [(cands '()) : (list-of string)]
    [(input '()) : (list-of string)]
    [(retval #f) : (or boolean (list-of string))]
-   [(done? #f) : boolean])
+   [(done? #f) : boolean]
+   [(mb-input (mb:make-mailbox)) : (struct mailbox)])
 
  (define (find-parent state cands)
    (state-old-cand-set! state (state-cur-cand state))
@@ -154,11 +156,14 @@
                 (state-query state)))
    (c:refresh))
 
- (define (init-state input)
-   (when (zero? (length input))
-     (print "no input")
-     (exit 1))
-   (make-state input: input))
+ (define (init-state)
+   (make-state))
+
+ (define (get-message state)
+   (thread-yield!)
+   (let ([mb-in (state-mb-input state)])
+     (cond [(not (mb:mailbox-empty? mb-in)) (mb:mailbox-receive! mb-in)]
+           [else #f])))
 
  (define (update state msg)
    (loop:log-msg "update" (car msg))
@@ -196,18 +201,35 @@
         0
         (max 0 (sub1 (string-length (state-query state))))))]
      [('key: c) (set-query (string-append (state-query state) (format "~a" c)))]
+     [('add-strings: strs) (state-input-set! state (append! (state-input state) strs))]
      [t (error 'update "unknown msg" t)])
    state)
 
+ (define (read-input-loop mb-out port)
+   (let lp ([lines '()]
+            [c 0])
+     (let ([l (read-line port)])
+       (cond [(or (eof-object? l) (= 1000 c))
+              (mb:mailbox-send! mb-out (list add-strings: (reverse! lines)))
+              (when (not (eof-object? l))
+                (lp '() 0))]
+             [else (lp (cons l lines) (add1 c))]))))
+
  (define (main input-file output-file)
-   (let* ([input (if input-file
+   (let* ([state (init-state)]
+          [input (if input-file
                      (with-input-from-file input-file
                        (lambda ()
-                         (read-lines)))
-                     (read-lines))])
-     (let* ([ret (state-retval (loop:main-loop (init-state input)
+                         (mb:mailbox-send! (state-mb-input state)
+                                           (list add-strings: (read-lines)))))
+                     (thread-start!
+                      (make-thread
+                       (lambda ()
+                         (read-input-loop (state-mb-input state) (current-input-port))))))])
+     (let* ([ret (state-retval (loop:main-loop state
                                                update
                                                render
+                                               get-message
                                                state-done?))])
        (define (pres)
          (when (list? ret)
