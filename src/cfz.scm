@@ -133,9 +133,10 @@
     c:A_BOLD
     (c:mvprintw (sub1 (c:LINES)) 0
                 "~a ~a > ~a"
+                (length (state-input state))
                 n-cands
-                cur-cand
-                (state-query state)))
+                (state-query state)
+                (list (state-old-query state))))
 
    (c:refresh))
 
