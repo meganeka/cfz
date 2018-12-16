@@ -88,7 +88,8 @@
            (let ([loc (get-condition-property exn 'exn 'location #f)])
              (if loc (format "In `~a':\n" loc) ""))
            (get-condition-property exn 'exn 'message "<no message>")
-           (let ([args (get-condition-property exn 'exn 'arguments)])
-             (if (null? args) "" (format "~a\n" args)))))
+           (let ([args (get-condition-property exn 'exn 'arguments '())])
+             (if (null? args) "" (format "~a\n" args))))
+   (print (condition->list exn)))
 
  )
