@@ -18,6 +18,7 @@
    (import (only matchable match))
    (import (prefix ncurses c:))
    (import (chicken condition))
+   (import (only (chicken bitwise) arithmetic-shift))
    (import (only (chicken irregex) irregex irregex-search))
    (import (prefix mailbox mb:))
    )
@@ -38,22 +39,23 @@
  (define backspace #\x107)
  (define selection-style (+ c:A_REVERSE c:A_BOLD))
 
- ;;; ** --- State -------------------------------------------------------------------
+;;; ** --- State -------------------------------------------------------------------
 
  (defstruct state
    [(cur-cand 0) : fixnum]
    [(old-cand -1) : fixnum]
+   [(cand-offs 0) : fixnum]
+
    [(query "") : string]
    [(old-query #f) : (or false string)]
    [(cands '()) : (list-of string)]
    [(input '()) : (list-of string)]
-   [(redraw? #f) : boolean]
 
    [(retval #f) : (or boolean (list-of string))]
    [(done? #f) : boolean]
    [(mb-input (mb:make-mailbox)) : (struct mailbox)])
 
- ;;; ** --- Render ------------------------------------------------------------------
+;;; ** --- Render ------------------------------------------------------------------
 
  (define-syntax with-attrs
    (ir-macro-transformer
@@ -66,64 +68,78 @@
             (c:attroff ,attrs)))
        (cdr e)))))
 
- (: print-candidates (strings fixnum fixnum -> *))
- (define (print-candidates cands cur-cand height)
-   (let* ([start-idx (max 0 (+ 1 (- cur-cand height)))])
-     (let recur ([line height]
-                 [cands (drop cands start-idx)]
-                 [idx start-idx])
-       (when (and (<= 0 line)
-                  (not (null? cands)))
-         (if (= idx cur-cand)
-             (with-attrs
-              c:A_REVERSE
-              (c:mvprintw line 0 "~a" (car cands)))
-             (c:mvprintw line 0 "~a" (car cands)))
-         (recur (sub1 line)
-                (cdr cands)
-                (add1 idx))))))
+ (define (idx-to-line idx offs count line-min line-max)
+   (let ([i (- idx offs)]
+         [h (- line-max line-min)])
+     (if (or (< i 0) (<= count i) (< h i))
+         #f
+         (+ line-min (- h i)))))
 
- (define (redraw-selection cands old-cand new-cand)
-   (: cand-to-line (fixnum --> fixnum))
-   (define (cand-to-line idx)
-     (- (c:LINES) 2 idx))
-   (let* ([n-cands (length cands)])
-     (when (< 0 n-cands)
-       (when (and (<= 0 old-cand n-cands)
-                  (< old-cand (- (c:LINES) 2)))
-         (c:mvprintw (cand-to-line old-cand) 0 "~a" (list-ref cands old-cand)))
-       (when (and (<= 0 new-cand n-cands)
-                  (< new-cand (- (c:LINES) 2)))
-         (with-attrs
-          selection-style
-          (c:mvprintw (cand-to-line new-cand) 0 "~a" (list-ref cands new-cand)))))))
+ (: print-candidates (strings fixnum fixnum fixnum -> *))
+ (define (print-candidates cands cur-cand cand-offs max-line)
+   (let recur ([line max-line]
+               [cs (drop cands cand-offs)])
+     (when (and (<= 0 line)
+                (not (null? cs)))
+       (c:mvprintw line 0 "~a" (car cs))
+       (recur (sub1 line)
+              (cdr cs)))))
+
+ (define (redraw-selection cands n-cands cand-offs old-cand new-cand c-mi c-ma)
+   (define (cand-to-line idx) (idx-to-line idx cand-offs n-cands c-mi c-ma))
+   (and-let* ([l (cand-to-line new-cand)])
+     (with-attrs
+      selection-style
+      (c:mvprintw l 0 "~a" (list-ref cands new-cand))))
+   (and-let* ([l (cand-to-line old-cand)]
+              [(< old-cand n-cands)])
+     (c:mvprintw l 0 "~a" (list-ref cands old-cand))))
 
  (define (render state)
-   (define cands-height (- (c:LINES) 2))
-   (define refresh? #f)
-   ;; TODO: flicker less
-   (when (state-redraw? state)
+   (define cand-win-min 0)
+   (define cand-win-max (- (c:LINES) 2))
+   (define cands-height (add1 (- cand-win-max cand-win-min)))
+   (define redraw-cands? #f)
+
+   (unless (eq? (state-query state) (state-old-query state))
+     (state-old-query-set! state (state-query state))
+     (let ([old-cands (state-cands state)])
+       (state-cands-set! state (filter-input (state-input state) (state-query state)))
+       (unless (equal? old-cands (state-cands state))
+         (set! redraw-cands? #t))))
+
+   (define n-cands (length (state-cands state)))
+   (define cur-cand (let ([cc (state-cur-cand state)])
+                      (cond [(< cc n-cands) cc]
+                            [else (state-cur-cand-set! state 0)
+                                  0])))
+   (define cand-offs (if (not (idx-to-line cur-cand (state-cand-offs state)
+                                           n-cands cand-win-min cand-win-max))
+                         (begin (set! redraw-cands? #t)
+                                (let ([o (max 0 (- cur-cand (arithmetic-shift cands-height -1)))])
+                                  (state-cand-offs-set! state o)
+                                  o))
+                         (state-cand-offs state)))
+
+   (when redraw-cands?
      (c:clear)
-     (state-cands-set! state (filter-input (state-input state) (state-query state)))
-     (print-candidates (state-cands state) (state-cur-cand state) cands-height)
-     (set! refresh? #t)
+     (print-candidates (state-cands state) cur-cand cand-offs cand-win-max))
 
-     (with-attrs
-      c:A_BOLD
-      (c:mvprintw (sub1 (c:LINES)) 0
-                  "~a ~a > ~a"
-                  (length (state-cands state))
-                  (state-cur-cand state)
-                  (state-query state))))
+   (redraw-selection (state-cands state) n-cands
+                     cand-offs (state-old-cand state) cur-cand
+                     cand-win-min cand-win-max)
 
-   (unless (eq? (state-old-cand state) (state-cur-cand state))
-     (redraw-selection (state-cands state) (state-old-cand state) (state-cur-cand state))
-     (set! refresh? #t))
+   (with-attrs
+    c:A_BOLD
+    (c:mvprintw (sub1 (c:LINES)) 0
+                "~a ~a > ~a"
+                n-cands
+                cur-cand
+                (state-query state)))
 
-   (when refresh?
-     (c:refresh)))
+   (c:refresh))
 
- ;;; ** --- Logic -------------------------------------------------------------------
+;;; ** --- Logic -------------------------------------------------------------------
 
  (: filter-input (strings string --> strings))
  (define (filter-input input query)
@@ -172,7 +188,7 @@
      (cond [(not (mb:mailbox-empty? mb-in)) (mb:mailbox-receive! mb-in)]
            [else #f])))
 
- ;;; ** --- Update ------------------------------------------------------------------
+;;; ** --- Update ------------------------------------------------------------------
 
  (define (update state msg)
    (loop:log-msg "update" (car msg))
@@ -183,11 +199,7 @@
          (state-cur-cand-set!
           state (modulo (+ count (state-cur-cand state)) (num-cands cands))))))
    (define (back? c) (or (eq? backspace c) (eq? c:KEY_BACKSPACE c)))
-   (define (set-query new)
-     (unless (equal? new (state-query state))
-       (state-redraw?-set! state #t)
-       (state-old-query-set! state (state-query state))
-       (state-query-set! state new)))
+   (define (set-query new) (state-query-set! state new))
    (define (set-return-val v)
      (state-done?-set! state #t)
      (state-retval-set! state v))
@@ -213,7 +225,7 @@
         (max 0 (sub1 (string-length (state-query state))))))]
      [('key: c) (set-query (string-append (state-query state) (format "~a" c)))]
      [('add-strings: strs)
-      (state-redraw?-set! state #t)
+      (state-old-query-set! state #f) ; refilter
       (state-input-set! state (append! (state-input state) strs))]
      [t (error 'update "unknown msg" t)])
    state)
